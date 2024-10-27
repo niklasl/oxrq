@@ -4,9 +4,9 @@ OxRQ is a simple command-line tool (`oxrq`) for running SPARQL queries over a st
 
 ## Purpose
 
-This tool is made for conveniently working with "one-off" queries in a commandline centric environment over a (reasonanly small) set of RDF source files. It can also be used to query, edit or create new RDF data, and to test queries and generally experiment with SPARQL.
+This tool is made for conveniently working with "one-off" queries in a command-line centric environment over a (reasonably small) set of RDF source files. It can also be used to query, edit or create new RDF data, and to test queries and generally experiment with SPARQL.
 
-(It is losely inspired by [AWK](https://en.wikipedia.org/wiki/AWK) and its common workflow.)
+(It is loosely inspired by [AWK](https://en.wikipedia.org/wiki/AWK) and its common workflow.)
 
 Prefixes used in the source data will be prepended to the SPARQL query, and will be used when serializing (if possible).
 
@@ -19,7 +19,7 @@ For now, check out this repository and use [Cargo](https://doc.rust-lang.org/car
 ## Examples
 
 Construct Turtle from a stream source:
-```sh
+```console
 $ echo '
 PREFIX : <http://example.org/ns#>
 BASE <http://example.org/>
@@ -34,8 +34,7 @@ $ oxrq 'insert { ?item :name "Item One" } WHERE { ?item :name "Item 1" }' /tmp/t
 <http://example.org/item/1> :name "Item One" , "Item 1" ;
 	a :Item .
 
-$ oxrq 'select ?s ?p ?o { ?s ?p ?o }' /tmp/test.ttl
+$ oxrq 'select ?s ?p ?o { ?s ?p ?o filter(?p = :name) }' /tmp/test.ttl
 ?s	?p	?o
 <http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
-<http://example.org/item/1>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/ns#Item>
 ```
