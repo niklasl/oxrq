@@ -1,0 +1,18 @@
+[package]
+name = "oxrq"
+authors = ["niklasl <lindstream@gmail.com>"]
+license = "0BSD"
+readme = "README.md"
+keywords = ["RDF", "SPARQL"]
+categories = ["command-line-utilities"]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spargebra = { version = ">=0.3.1" }
+oxigraph = { version = ">=0.4.1", default-features = false }
+
+[[bin]]
+name = "oxrq"
+path = "src/main.rs"
+doc = false
