@@ -18,7 +18,6 @@ For now, check out this repository and use [Cargo](https://doc.rust-lang.org/car
 
 ## Examples
 
-Construct Turtle from a stream source:
 ```console
 $ echo '
 PREFIX : <http://example.org/ns#>
