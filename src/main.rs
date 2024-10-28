@@ -1,113 +1,165 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::Path;
 
+use clap::{Parser as CliParser};
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, Update};
 use oxigraph::store::Store;
 
+#[derive(CliParser)]
+#[command(version, about, name = "oxrq")]
+struct CliArgs {
+    query: Option<String>,
+    file: Vec<String>,
+
+    #[arg(short, long)]
+    query_file: Option<String>,
+
+    #[arg(short, long)]
+    input_format: Option<String>,
+
+    #[arg(short, long)]
+    output_format: Option<String>,
+
+    #[arg(short, long)]
+    base_iri: Option<String>,
+}
+
 fn collect_input(
-    args: Vec<String>,
+    args: &CliArgs,
     store: &Store,
     query_str: &mut String,
+    base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
 ) {
     let loader = store.bulk_loader();
 
+    if let Some(value) = &args.base_iri {
+        base_iri.get_or_insert(value.to_owned());
+    }
+
     // Read data from stdin:
-    let stdin = std::io::stdin();
-    let reader = std::io::BufReader::new(stdin.lock());
-    let parser = RdfParser::from_format(RdfFormat::Turtle);
+    if args.file.len() == 0 {
+        let stdin = std::io::stdin();
+        let reader = std::io::BufReader::new(stdin.lock());
+        let format = if let Some(fmt) = &args.input_format {
+            RdfFormat::from_extension(&fmt).unwrap()
+        } else {
+            RdfFormat::Turtle
+        };
+        let parser = RdfParser::from_format(format);
 
-    let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-    let quads = parser_reader
-        .by_ref()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    loader.load_quads(quads).unwrap();
+        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
+        let quads = parser_reader
+            .by_ref()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
 
-    for (pfx, ns) in parser_reader.prefixes() {
-        prefixes.insert(pfx.to_owned(), ns.to_owned());
+        loader.load_quads(quads).unwrap();
+
+        if let Some(value) = parser_reader.base_iri() {
+            base_iri.get_or_insert(value.to_owned());
+        }
+
+        for (pfx, ns) in parser_reader.prefixes() {
+            prefixes.insert(pfx.to_owned(), ns.to_owned());
+        }
     }
 
     // Read data from files:
-    if args.len() > 2 {
-        for fpath in &args[2..] {
-            let fpath = Path::new(fpath);
-            let ext = fpath.extension().and_then(OsStr::to_str).unwrap();
-            let format = RdfFormat::from_extension(ext).unwrap();
-            let parser = RdfParser::from_format(format);
+    for fpath in &args.file {
+        let fpath = Path::new(fpath);
+        let ext = fpath.extension().and_then(OsStr::to_str).unwrap();
+        let format = RdfFormat::from_extension(ext).unwrap();
+        let parser = RdfParser::from_format(format);
 
-            let file = std::fs::File::open(fpath).unwrap();
-            let reader = std::io::BufReader::new(file);
-            let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-            let quads = parser_reader
-                .by_ref()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap();
-            loader.load_quads(quads).unwrap();
-            for (pfx, ns) in parser_reader.prefixes() {
-                if !prefixes.contains_key(pfx) {
-                    prefixes.insert(pfx.to_owned(), ns.to_owned());
-                }
+        let file = std::fs::File::open(fpath).unwrap();
+        let reader = std::io::BufReader::new(file);
+        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
+        let quads = parser_reader
+            .by_ref()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        loader.load_quads(quads).unwrap();
+
+        for (pfx, ns) in parser_reader.prefixes() {
+            if !prefixes.contains_key(pfx) {
+                prefixes.insert(pfx.to_owned(), ns.to_owned());
             }
         }
     }
 
-    // Get query body:
-    let mut query_body = "";
-    if args.len() > 1 {
-        query_body = args[1].as_ref();
+    // Get query:
+    if let Some(fpath) = &args.query_file {
+        let fpath = Path::new(&fpath);
+        let mut file = std::fs::File::open(fpath).unwrap();
+        file.read_to_string(query_str).unwrap();
+    } else if let Some(query_body) = &args.query {
+        // Prepend found prefixes to query:
+        for (pfx, ns) in prefixes.iter() {
+            query_str.push_str(&format!("PREFIX {pfx}: <{ns}>\n"));
+        }
+        // Get query body:
+        query_str.push_str(&format!("{}", query_body));
     }
-
-    // Prepend found prefixes to query:
-    for (pfx, ns) in prefixes.iter() {
-        query_str.push_str(&format!("PREFIX {pfx}: <{ns}>\n"));
-    }
-    query_str.push_str(query_body);
 }
 
 fn main() {
     let mut store = Store::new().unwrap();
     let mut query_str = String::new();
     let mut prefixes: HashMap<String, String> = HashMap::new();
-    let base_iri: Option<&str> = None;
+    let mut base_iri: Option<String> = None;
 
-    let args: Vec<_> = std::env::args().collect();
-    collect_input(args, &store, &mut query_str, &mut prefixes);
+    let args = CliArgs::parse();
+
+    collect_input(&args, &store, &mut query_str, &mut base_iri, &mut prefixes);
 
     // Ouput writer:
     let stdout = std::io::stdout();
     let writer = std::io::BufWriter::new(stdout.lock());
 
     // Run query:
-    if let Ok(query) = Query::parse(&query_str, base_iri) {
-        match store.query(query).unwrap() {
+    if let Ok(query) = Query::parse(&query_str, base_iri.as_deref()) {
+        let results = store.query(query).unwrap();
+        match results {
+            // Select:
             QueryResults::Solutions(solutions) => {
-                // Select
-                let format = QueryResultsFormat::from_extension("tsv").unwrap();
+                let format = if let Some(fmt) = &args.output_format {
+                    QueryResultsFormat::from_extension(&fmt).unwrap()
+                } else {
+                    QueryResultsFormat::Tsv
+                };
                 let mut serializer = QueryResultsSerializer::from_format(format)
                     .serialize_solutions_to_writer(writer, solutions.variables().to_vec())
                     .unwrap();
                 for solution in solutions {
                     serializer.serialize(&solution.unwrap()).unwrap();
                 }
+                // Done serializing:
                 return;
             }
 
+            // Ask:
             QueryResults::Boolean(result) => {
-                // Ask
-                let format = QueryResultsFormat::from_extension("tsv").unwrap();
+                let format = if let Some(fmt) = &args.output_format {
+                    QueryResultsFormat::from_extension(&fmt).unwrap()
+                } else {
+                    QueryResultsFormat::Tsv
+                };
                 QueryResultsSerializer::from_format(format)
                     .serialize_boolean_to_writer(writer, result)
                     .unwrap();
+                // Done serializing:
                 return;
             }
 
+            // Construct or Describe:
             QueryResults::Graph(triples) => {
-                // Construct or Describe
                 store = Store::new().unwrap();
                 for triple in triples {
                     let triple = triple.unwrap();
@@ -122,13 +174,19 @@ fn main() {
             }
         }
     } else {
-        // Insert or Delete
-        let update = Update::parse(&query_str, base_iri).unwrap();
+        // Insert or Delete:
+        let update = Update::parse(&query_str, base_iri.as_deref()).unwrap();
         store.update(update).unwrap();
     }
 
+    let format = if let Some(fmt) = &args.output_format {
+        RdfFormat::from_extension(&fmt).unwrap()
+    } else {
+        RdfFormat::TriG
+    };
+
     // Serialize resulting store:
-    let mut serializer = RdfSerializer::from_format(RdfFormat::TriG);
+    let mut serializer = RdfSerializer::from_format(format);
     for (pfx, ns) in prefixes {
         serializer = serializer.with_prefix(pfx, ns).unwrap();
     }
