@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io::Read;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
 
-use clap::{Parser as CliParser};
+use clap::Parser as CliParser;
+
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
@@ -45,7 +47,7 @@ fn collect_input(
     // Read data from stdin:
     if args.file.len() == 0 {
         let stdin = std::io::stdin();
-        let reader = std::io::BufReader::new(stdin.lock());
+        let reader = BufReader::new(stdin.lock());
         let format = if let Some(fmt) = &args.input_format {
             RdfFormat::from_extension(&fmt).unwrap()
         } else {
@@ -77,8 +79,8 @@ fn collect_input(
         let format = RdfFormat::from_extension(ext).unwrap();
         let parser = RdfParser::from_format(format);
 
-        let file = std::fs::File::open(fpath).unwrap();
-        let reader = std::io::BufReader::new(file);
+        let file = File::open(fpath).unwrap();
+        let reader = BufReader::new(file);
         let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
         let quads = parser_reader
             .by_ref()
@@ -97,7 +99,7 @@ fn collect_input(
     // Get query:
     if let Some(fpath) = &args.query_file {
         let fpath = Path::new(&fpath);
-        let mut file = std::fs::File::open(fpath).unwrap();
+        let mut file = File::open(fpath).unwrap();
         file.read_to_string(query_str).unwrap();
     } else if let Some(query_body) = &args.query {
         // Prepend found prefixes to query:
@@ -121,7 +123,7 @@ fn main() {
 
     // Ouput writer:
     let stdout = std::io::stdout();
-    let writer = std::io::BufWriter::new(stdout.lock());
+    let writer = BufWriter::new(stdout.lock());
 
     // Run query:
     if let Ok(query) = Query::parse(&query_str, base_iri.as_deref()) {
