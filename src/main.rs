@@ -6,7 +6,7 @@ use std::path::Path;
 
 use clap::Parser as CliParser;
 
-use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
+use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer, ReaderQuadParser};
 use oxigraph::model::{GraphName, GraphNameRef, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, Update};
@@ -15,12 +15,6 @@ use oxigraph::store::Store;
 #[derive(CliParser)]
 #[command(version, about, name = "oxrq")]
 struct CliArgs {
-    query: Option<String>,
-    file: Vec<String>,
-
-    #[arg(short, long)]
-    query_file: Option<String>,
-
     #[arg(short, long)]
     input_format: Option<String>,
 
@@ -29,10 +23,19 @@ struct CliArgs {
 
     #[arg(short, long)]
     base_iri: Option<String>,
+
+    #[arg(short, long)]
+    file_query: bool,
+
+    #[arg(short, long)]
+    no_stdin: bool,
+
+    query: Option<String>,
+    file: Vec<String>,
 }
 
 fn collect_input(
-    args: &CliArgs,
+    args: &mut CliArgs,
     store: &Store,
     query_str: &mut String,
     base_iri: &mut Option<String>,
@@ -44,8 +47,51 @@ fn collect_input(
         base_iri.get_or_insert(value.to_owned());
     }
 
+    // Use query as file:
+    if args.file_query {
+        if let Some(actually_fpath) = &args.query {
+            args.file.push(actually_fpath.to_owned());
+            args.query = None;
+        }
+    }
+
+    let mut use_stin = !args.no_stdin && args.file.len() == 0;
+
+    let mut query_file: Option<&str> = None;
+
+    // Read data from files:
+    for fpath in &args.file {
+        if fpath == "-" {
+            use_stin = true;
+            continue
+        }
+
+        let path = Path::new(fpath);
+        let ext = path.extension().and_then(OsStr::to_str).unwrap();
+
+        if ext == "rq" {
+            query_file = Some(fpath);
+            continue
+        }
+
+        let format = RdfFormat::from_extension(ext).unwrap();
+        let parser = RdfParser::from_format(format);
+
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
+        let quads = parser_reader
+            .by_ref()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        loader.load_quads(quads).unwrap();
+
+        opt_set_base_iri_and_prefixes(&parser_reader, base_iri, prefixes);
+    }
+
     // Read data from stdin:
-    if args.file.len() == 0 {
+    if use_stin {
         let stdin = std::io::stdin();
         let reader = BufReader::new(stdin.lock());
         let format = if let Some(fmt) = &args.input_format {
@@ -63,41 +109,11 @@ fn collect_input(
 
         loader.load_quads(quads).unwrap();
 
-        if let Some(value) = parser_reader.base_iri() {
-            base_iri.get_or_insert(value.to_owned());
-        }
-
-        for (pfx, ns) in parser_reader.prefixes() {
-            prefixes.insert(pfx.to_owned(), ns.to_owned());
-        }
-    }
-
-    // Read data from files:
-    for fpath in &args.file {
-        let fpath = Path::new(fpath);
-        let ext = fpath.extension().and_then(OsStr::to_str).unwrap();
-        let format = RdfFormat::from_extension(ext).unwrap();
-        let parser = RdfParser::from_format(format);
-
-        let file = File::open(fpath).unwrap();
-        let reader = BufReader::new(file);
-        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-        let quads = parser_reader
-            .by_ref()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-
-        loader.load_quads(quads).unwrap();
-
-        for (pfx, ns) in parser_reader.prefixes() {
-            if !prefixes.contains_key(pfx) {
-                prefixes.insert(pfx.to_owned(), ns.to_owned());
-            }
-        }
+        opt_set_base_iri_and_prefixes(&parser_reader, base_iri, prefixes);
     }
 
     // Get query:
-    if let Some(fpath) = &args.query_file {
+    if let Some(fpath) = query_file {
         let fpath = Path::new(&fpath);
         let mut file = File::open(fpath).unwrap();
         file.read_to_string(query_str).unwrap();
@@ -111,15 +127,37 @@ fn collect_input(
     }
 }
 
+fn opt_set_base_iri_and_prefixes<R: Read>(
+    parser_reader: &ReaderQuadParser<R>,
+    base_iri: &mut Option<String>,
+    prefixes: &mut HashMap<String, String>,
+) {
+    if let Some(value) = parser_reader.base_iri() {
+        base_iri.get_or_insert(value.to_owned());
+    }
+
+    for (pfx, ns) in parser_reader.prefixes() {
+        if !prefixes.contains_key(pfx) {
+            prefixes.insert(pfx.to_owned(), ns.to_owned());
+        }
+    }
+}
+
 fn main() {
     let mut store = Store::new().unwrap();
     let mut query_str = String::new();
     let mut prefixes: HashMap<String, String> = HashMap::new();
     let mut base_iri: Option<String> = None;
 
-    let args = CliArgs::parse();
+    let mut args = CliArgs::parse();
 
-    collect_input(&args, &store, &mut query_str, &mut base_iri, &mut prefixes);
+    collect_input(
+        &mut args,
+        &store,
+        &mut query_str,
+        &mut base_iri,
+        &mut prefixes,
+    );
 
     // Ouput writer:
     let stdout = std::io::stdout();
