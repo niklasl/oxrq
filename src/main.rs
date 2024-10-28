@@ -7,7 +7,7 @@ use std::path::Path;
 use clap::Parser as CliParser;
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
-use oxigraph::model::{GraphName, Quad};
+use oxigraph::model::{GraphName, GraphNameRef, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, Update};
 use oxigraph::store::Store;
@@ -193,5 +193,9 @@ fn main() {
         serializer = serializer.with_prefix(pfx, ns).unwrap();
     }
 
-    store.dump_to_writer(serializer, writer).unwrap();
+    if !format.supports_datasets() {
+        store.dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer).unwrap();
+    } else {
+        store.dump_to_writer(serializer, writer).unwrap();
+    }
 }
