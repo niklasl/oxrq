@@ -14,24 +14,31 @@ use oxigraph::sparql::{Query, QueryResults, Update};
 use oxigraph::store::{BulkLoader, Store};
 
 #[derive(CliParser)]
-#[command(version, about, name = "oxrq")]
+#[command(version, about, long_about = None)]
 struct CliArgs {
+    /// Input RDF format (ttl, rdf, nt, nq)
     #[arg(short, long)]
     input_format: Option<String>,
 
+    /// Output RDF format (ttl, rdf, nt, nq) or SPARQL results format (tsv, csv, json, xml)
     #[arg(short, long)]
     output_format: Option<String>,
 
     #[arg(short, long)]
     base_iri: Option<String>,
 
+    /// Provide query via file (with .rq suffix)
     #[arg(short, long)]
     file_query: bool,
 
+    /// DO not read from stdin
     #[arg(short, long)]
     no_stdin: bool,
 
+    /// Query string (unless --file-query is used)
     query: Option<String>,
+
+    /// RDF file(s)
     file: Vec<String>,
 }
 
