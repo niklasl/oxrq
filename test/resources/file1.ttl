@@ -1,0 +1,5 @@
+PREFIX : <http://example.org/ns#>
+BASE <http://example.org/>
+
+<item/1> a :Item ;
+  :name "Item 1" .
