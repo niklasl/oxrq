@@ -4,9 +4,9 @@ OxRQ is a simple command-line tool (`oxrq`) for running SPARQL queries over a st
 
 ## Purpose
 
-This tool is made for conveniently working with "one-off" queries in a command-line centric environment over a (reasonably small) set of RDF source files. It can be used to query, edit or create new RDF data using SPARQL.
+This tool is primarily made for working with "one-off" queries over a set of RDF source files on the command-line. It can be used to query, edit and/or create new RDF data using SPARQL.
 
-(It is loosely inspired by the workflow of [AWK](https://en.wikipedia.org/wiki/AWK). It also aims to be usable as an alternative to the venerable [`rasqal`](https://librdf.org/rasqal/roqet.html) and [`rapper`](https://librdf.org/raptor/rapper.html) tools.)
+(It is loosely inspired by the workflow of [AWK](https://en.wikipedia.org/wiki/AWK), and in some ways aims to be an alternative to the venerable [`rasqal`](https://librdf.org/rasqal/roqet.html) and [`rapper`](https://librdf.org/raptor/rapper.html) tools.)
 
 ## Install
 
@@ -14,7 +14,35 @@ For now, check out this repository and use [Cargo](https://doc.rust-lang.org/car
 
     $ cargo install --path .
 
-## Usage
+## Example Usage
+
+```console
+$ echo '
+PREFIX : <http://example.org/ns#>
+BASE <http://example.org/>
+<item/1> a :Item ; :name "Item 1" .
+' > /tmp/test_oxrq.ttl
+
+$ cat /tmp/test_oxrq.ttl | oxrq 'construct { ?item a :Thing } { ?item a :Item }'
+@prefix : <http://example.org/ns#> .
+<http://example.org/item/1> a :Thing .
+
+$ oxrq 'insert { ?item :name "Item One" } where { ?item :name "Item 1" }' /tmp/test_oxrq.ttl
+@prefix : <http://example.org/ns#> .
+<http://example.org/item/1> :name "Item One" , "Item 1" ;
+	a :Item .
+
+$ oxrq 'select ?s ?p ?o { ?s ?p ?o filter(?p = :name) }' /tmp/test_oxrq.ttl
+?s	?p	?o
+<http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
+
+$ oxrq /tmp/test_oxrq.ttl -fo rdf > /tmp/test_oxrq.rdf
+$ cat /tmp/test_oxrq.rdf | oxrq -irdf 'select(count(*)as?count){?s?p?o}' -ocsv
+count
+2
+```
+
+## Usage Details
 
 The `oxrq` command reads RDF from stdin (Turtle by default, use `--input-format` (or `-i`) to change), and executes the SPARQL query provided as the first argument.
 
@@ -27,27 +55,3 @@ Output will be Turtle for `CONSTRUCT` or `DESCRIBE` (as new graphs), and for `IN
 Prefixes used in the source data will be prepended to the SPARQL query, and will be used when serializing (if possible). First found prefix takes precedence, so an empty RDF file can be used to set preferred prefixes.
 
 To prevent reading from stdin, use `--no-stdin` (or `-n`). This is useful when creating RDF using self-contained `CONSTRUCT` queries containing `VALUES` clauses.
-
-## Examples
-
-```console
-$ echo '
-PREFIX : <http://example.org/ns#>
-BASE <http://example.org/>
-<item/1> a :Item ; :name "Item 1" .' > /tmp/test.ttl
-
-$ cat /tmp/test.ttl | oxrq 'construct { ?item a :Thing } { ?item a :Item }'
-@prefix : <http://example.org/ns#> .
-<http://example.org/item/1> a :Thing .
-
-$ oxrq 'insert { ?item :name "Item One" } WHERE { ?item :name "Item 1" }' /tmp/test.ttl
-@prefix : <http://example.org/ns#> .
-<http://example.org/item/1> :name "Item One" , "Item 1" ;
-	a :Item .
-
-$ oxrq 'select ?s ?p ?o { ?s ?p ?o filter(?p = :name) }' /tmp/test.ttl
-?s	?p	?o
-<http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
-
-$ oxrq /tmp/test.ttl -fo rdf
-```
