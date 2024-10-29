@@ -6,11 +6,11 @@ use std::path::Path;
 
 use clap::Parser as CliParser;
 
-use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer, ReaderQuadParser};
+use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, GraphNameRef, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, Update};
-use oxigraph::store::Store;
+use oxigraph::store::{BulkLoader, Store};
 
 #[derive(CliParser)]
 #[command(version, about, name = "oxrq")]
@@ -41,8 +41,6 @@ fn collect_input(
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
 ) {
-    let loader = store.bulk_loader();
-
     if let Some(value) = &args.base_iri {
         base_iri.get_or_insert(value.to_owned());
     }
@@ -59,11 +57,13 @@ fn collect_input(
 
     let mut query_file: Option<&str> = None;
 
+    let loader = store.bulk_loader();
+
     // Read data from files:
     for fpath in &args.file {
         if fpath == "-" {
             use_stin = true;
-            continue
+            continue;
         }
 
         let path = Path::new(fpath);
@@ -71,7 +71,7 @@ fn collect_input(
 
         if ext == "rq" {
             query_file = Some(fpath);
-            continue
+            continue;
         }
 
         let format = RdfFormat::from_extension(ext).unwrap();
@@ -79,21 +79,12 @@ fn collect_input(
 
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
-        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-        let quads = parser_reader
-            .by_ref()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
 
-        loader.load_quads(quads).unwrap();
-
-        opt_set_base_iri_and_prefixes(&parser_reader, base_iri, prefixes);
+        load_data(&loader, parser, reader, base_iri, prefixes);
     }
 
     // Read data from stdin:
     if use_stin {
-        let stdin = std::io::stdin();
-        let reader = BufReader::new(stdin.lock());
         let format = if let Some(fmt) = &args.input_format {
             RdfFormat::from_extension(&fmt).unwrap()
         } else {
@@ -101,15 +92,10 @@ fn collect_input(
         };
         let parser = RdfParser::from_format(format);
 
-        let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-        let quads = parser_reader
-            .by_ref()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+        let stdin = std::io::stdin();
+        let reader = BufReader::new(stdin.lock());
 
-        loader.load_quads(quads).unwrap();
-
-        opt_set_base_iri_and_prefixes(&parser_reader, base_iri, prefixes);
+        load_data(&loader, parser, reader, base_iri, prefixes);
     }
 
     // Get query:
@@ -127,11 +113,21 @@ fn collect_input(
     }
 }
 
-fn opt_set_base_iri_and_prefixes<R: Read>(
-    parser_reader: &ReaderQuadParser<R>,
+fn load_data<R: Read>(
+    loader: &BulkLoader,
+    parser: RdfParser,
+    reader: BufReader<R>,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
 ) {
+    let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
+    let quads = parser_reader
+        .by_ref()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    loader.load_quads(quads).unwrap();
+
     if let Some(value) = parser_reader.base_iri() {
         base_iri.get_or_insert(value.to_owned());
     }
@@ -140,6 +136,14 @@ fn opt_set_base_iri_and_prefixes<R: Read>(
         if !prefixes.contains_key(pfx) {
             prefixes.insert(pfx.to_owned(), ns.to_owned());
         }
+    }
+}
+
+fn get_queryresults_format(output_format: &Option<String>) -> QueryResultsFormat {
+    if let Some(fmt) = output_format {
+        QueryResultsFormat::from_extension(&fmt).unwrap()
+    } else {
+        QueryResultsFormat::Tsv
     }
 }
 
@@ -169,11 +173,7 @@ fn main() {
         match results {
             // Select:
             QueryResults::Solutions(solutions) => {
-                let format = if let Some(fmt) = &args.output_format {
-                    QueryResultsFormat::from_extension(&fmt).unwrap()
-                } else {
-                    QueryResultsFormat::Tsv
-                };
+                let format = get_queryresults_format(&args.output_format);
                 let mut serializer = QueryResultsSerializer::from_format(format)
                     .serialize_solutions_to_writer(writer, solutions.variables().to_vec())
                     .unwrap();
@@ -186,11 +186,7 @@ fn main() {
 
             // Ask:
             QueryResults::Boolean(result) => {
-                let format = if let Some(fmt) = &args.output_format {
-                    QueryResultsFormat::from_extension(&fmt).unwrap()
-                } else {
-                    QueryResultsFormat::Tsv
-                };
+                let format = get_queryresults_format(&args.output_format);
                 QueryResultsSerializer::from_format(format)
                     .serialize_boolean_to_writer(writer, result)
                     .unwrap();
@@ -232,7 +228,9 @@ fn main() {
     }
 
     if !format.supports_datasets() {
-        store.dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer).unwrap();
+        store
+            .dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer)
+            .unwrap();
     } else {
         store.dump_to_writer(serializer, writer).unwrap();
     }
