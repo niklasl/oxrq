@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use clap::Parser as CliParser;
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
@@ -40,7 +41,7 @@ fn collect_input(
     query_str: &mut String,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
-) {
+) -> Result<()> {
     if let Some(value) = &args.base_iri {
         base_iri.get_or_insert(value.to_owned());
     }
@@ -67,26 +68,31 @@ fn collect_input(
         }
 
         let path = Path::new(fpath);
-        let ext = path.extension().and_then(OsStr::to_str).unwrap();
+        let ext = path
+            .extension()
+            .and_then(OsStr::to_str)
+            .with_context(|| format!("Needs file extensions to detect input format"))?;
 
         if ext == "rq" {
             query_file = Some(fpath);
             continue;
         }
 
-        let format = RdfFormat::from_extension(ext).unwrap();
+        let format = RdfFormat::from_extension(ext)
+            .with_context(|| format!("No RDF format found for extension {ext}"))?;
         let parser = RdfParser::from_format(format);
 
-        let file = File::open(path).unwrap();
+        let file = File::open(path).with_context(|| format!("Unable to open file: {fpath}"))?;
         let reader = BufReader::new(file);
 
-        load_data(&loader, parser, reader, base_iri, prefixes);
+        load_data(&loader, parser, reader, base_iri, prefixes)?;
     }
 
     // Read data from stdin:
     if use_stin {
         let format = if let Some(fmt) = &args.input_format {
-            RdfFormat::from_extension(&fmt).unwrap()
+            RdfFormat::from_extension(&fmt)
+                .with_context(|| format!("Unknown input format: {fmt}"))?
         } else {
             RdfFormat::Turtle
         };
@@ -95,14 +101,15 @@ fn collect_input(
         let stdin = std::io::stdin();
         let reader = BufReader::new(stdin.lock());
 
-        load_data(&loader, parser, reader, base_iri, prefixes);
+        load_data(&loader, parser, reader, base_iri, prefixes)?;
     }
 
     // Get query:
     if let Some(fpath) = query_file {
-        let fpath = Path::new(&fpath);
-        let mut file = File::open(fpath).unwrap();
-        file.read_to_string(query_str).unwrap();
+        let path = Path::new(&fpath);
+        let mut file =
+            File::open(path).with_context(|| format!("Unable to open query file: {fpath}"))?;
+        file.read_to_string(query_str)?;
     } else if let Some(query_body) = &args.query {
         // Prepend found prefixes to query:
         for (pfx, ns) in prefixes.iter() {
@@ -111,6 +118,8 @@ fn collect_input(
         // Get query body:
         query_str.push_str(&format!("{}", query_body));
     }
+
+    Ok(())
 }
 
 fn load_data<R: Read>(
@@ -119,14 +128,11 @@ fn load_data<R: Read>(
     reader: BufReader<R>,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
-) {
+) -> Result<()> {
     let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
-    let quads = parser_reader
-        .by_ref()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
+    let quads = parser_reader.by_ref().collect::<Result<Vec<_>, _>>()?;
 
-    loader.load_quads(quads).unwrap();
+    loader.load_quads(quads)?;
 
     if let Some(value) = parser_reader.base_iri() {
         base_iri.get_or_insert(value.to_owned());
@@ -137,18 +143,21 @@ fn load_data<R: Read>(
             prefixes.insert(pfx.to_owned(), ns.to_owned());
         }
     }
+
+    Ok(())
 }
 
-fn get_queryresults_format(output_format: &Option<String>) -> QueryResultsFormat {
+fn get_queryresults_format(output_format: &Option<String>) -> Result<QueryResultsFormat> {
     if let Some(fmt) = output_format {
-        QueryResultsFormat::from_extension(&fmt).unwrap()
+        QueryResultsFormat::from_extension(&fmt)
+            .with_context(|| format!("Unknown query results format: {fmt}"))
     } else {
-        QueryResultsFormat::Tsv
+        Ok(QueryResultsFormat::Tsv)
     }
 }
 
-fn main() {
-    let mut store = Store::new().unwrap();
+fn main() -> Result<()> {
+    let mut store = Store::new()?;
     let mut query_str = String::new();
     let mut prefixes: HashMap<String, String> = HashMap::new();
     let mut base_iri: Option<String> = None;
@@ -161,62 +170,60 @@ fn main() {
         &mut query_str,
         &mut base_iri,
         &mut prefixes,
-    );
+    )?;
 
-    // Ouput writer:
+    // Output writer:
     let stdout = std::io::stdout();
     let writer = BufWriter::new(stdout.lock());
 
     // Run query:
     if let Ok(query) = Query::parse(&query_str, base_iri.as_deref()) {
-        let results = store.query(query).unwrap();
+        let results = store.query(query).context("Query failed")?;
         match results {
             // Select:
             QueryResults::Solutions(solutions) => {
-                let format = get_queryresults_format(&args.output_format);
+                let format = get_queryresults_format(&args.output_format)?;
                 let mut serializer = QueryResultsSerializer::from_format(format)
-                    .serialize_solutions_to_writer(writer, solutions.variables().to_vec())
-                    .unwrap();
+                    .serialize_solutions_to_writer(writer, solutions.variables().to_vec())?;
                 for solution in solutions {
-                    serializer.serialize(&solution.unwrap()).unwrap();
+                    serializer.serialize(&solution?)?;
                 }
                 // Done serializing:
-                return;
+                return Ok(());
             }
 
             // Ask:
             QueryResults::Boolean(result) => {
-                let format = get_queryresults_format(&args.output_format);
+                let format = get_queryresults_format(&args.output_format)?;
                 QueryResultsSerializer::from_format(format)
-                    .serialize_boolean_to_writer(writer, result)
-                    .unwrap();
+                    .serialize_boolean_to_writer(writer, result)?;
                 // Done serializing:
-                return;
+                return Ok(());
             }
 
             // Construct or Describe:
             QueryResults::Graph(triples) => {
-                store = Store::new().unwrap();
+                store = Store::new()?;
                 for triple in triples {
-                    let triple = triple.unwrap();
+                    let triple = triple?;
                     let quad = Quad {
                         subject: triple.subject,
                         predicate: triple.predicate,
                         object: triple.object,
                         graph_name: GraphName::DefaultGraph,
                     };
-                    store.insert(quad.as_ref()).unwrap();
+                    store.insert(quad.as_ref())?;
                 }
             }
         }
     } else {
         // Insert or Delete:
-        let update = Update::parse(&query_str, base_iri.as_deref()).unwrap();
-        store.update(update).unwrap();
+        let update = Update::parse(&query_str, base_iri.as_deref()).context("Bad query")?;
+        store.update(update)?;
     }
 
     let format = if let Some(fmt) = &args.output_format {
-        RdfFormat::from_extension(&fmt).unwrap()
+        RdfFormat::from_extension(&fmt).with_context(|| format!("Unknown output format: {fmt}"))?
     } else {
         RdfFormat::TriG
     };
@@ -224,14 +231,14 @@ fn main() {
     // Serialize resulting store:
     let mut serializer = RdfSerializer::from_format(format);
     for (pfx, ns) in prefixes {
-        serializer = serializer.with_prefix(pfx, ns).unwrap();
+        serializer = serializer.with_prefix(pfx, ns)?;
     }
 
     if !format.supports_datasets() {
-        store
-            .dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer)
-            .unwrap();
+        store.dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer)?;
     } else {
-        store.dump_to_writer(serializer, writer).unwrap();
+        store.dump_to_writer(serializer, writer)?;
     }
+
+    Ok(())
 }
