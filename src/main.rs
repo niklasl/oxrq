@@ -61,7 +61,7 @@ fn collect_input(
         }
     }
 
-    let mut use_stin = !args.no_stdin && args.file.len() == 0;
+    let mut use_stdin = !args.no_stdin && args.file.len() == 0;
 
     let mut query_file: Option<&str> = None;
 
@@ -70,7 +70,7 @@ fn collect_input(
     // Read data from files:
     for fpath in &args.file {
         if fpath == "-" {
-            use_stin = true;
+            use_stdin = true;
             continue;
         }
 
@@ -96,7 +96,7 @@ fn collect_input(
     }
 
     // Read data from stdin:
-    if use_stin {
+    if use_stdin {
         let format = if let Some(fmt) = &args.input_format {
             RdfFormat::from_extension(&fmt)
                 .with_context(|| format!("Unknown input format: {fmt}"))?
