@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser as CliParser;
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
-use oxigraph::model::{GraphName, GraphNameRef, Quad};
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, Update};
 use oxigraph::store::{BulkLoader, Store};
@@ -88,10 +88,19 @@ fn collect_input(
 
         let format = RdfFormat::from_extension(ext)
             .with_context(|| format!("No RDF format found for extension {ext}"))?;
-        let parser = RdfParser::from_format(format);
+        let mut parser = RdfParser::from_format(format);
 
         let file = File::open(path).with_context(|| format!("Unable to open file: {fpath}"))?;
         let reader = BufReader::new(file);
+
+        // Use file path as named graph IRI
+        let graph_iri = if fpath.starts_with("/") {
+            format!("file://{fpath}")
+        } else {
+            format!("file:{fpath}")
+        }
+        .replace(" ", "%20");
+        parser = parser.with_default_graph(NamedNode::new(&graph_iri)?);
 
         load_data(&loader, parser, reader, base_iri, prefixes)?;
     }
@@ -189,7 +198,8 @@ fn main() -> Result<()> {
     let writer = BufWriter::new(stdout.lock());
 
     // Run query:
-    if let Ok(query) = Query::parse(&query_str, base_iri.as_deref()) {
+    if let Ok(mut query) = Query::parse(&query_str, base_iri.as_deref()) {
+        query.dataset_mut().set_default_graph_as_union();
         let results = store.query(query).context("Query failed")?;
         match results {
             // Select:
