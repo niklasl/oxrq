@@ -28,15 +28,15 @@ struct CliArgs {
     #[arg(short, long)]
     base_iri: Option<String>,
 
-    /// Provide query via file (with .rq suffix)
+    /// Provide query via file (with '.rq' suffix)
     #[arg(short, long)]
     file_query: bool,
 
-    /// DO not read from stdin
+    /// Do not read from stdin (unless '-' is given as file)
     #[arg(short, long)]
     no_stdin: bool,
 
-    /// Query string (unless --file-query is used)
+    /// Query string (unless '--file-query' is used)
     query: Option<String>,
 
     /// RDF file(s)

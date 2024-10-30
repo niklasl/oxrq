@@ -1,6 +1,6 @@
 [package]
 name = "oxrq"
-description = "Run SPARQL queries over streams or files of RDF data."
+description = "Run SPARQL query over input stream or files of RDF data."
 authors = ["niklasl <lindstream@gmail.com>"]
 license = "0BSD"
 readme = "README.md"
