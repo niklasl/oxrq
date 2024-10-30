@@ -24,6 +24,7 @@ struct CliArgs {
     #[arg(short, long)]
     output_format: Option<String>,
 
+    /// Base IRI used when parsing
     #[arg(short, long)]
     base_iri: Option<String>,
 
@@ -131,11 +132,15 @@ fn collect_input(
 
 fn load_data<R: Read>(
     loader: &BulkLoader,
-    parser: RdfParser,
+    mut parser: RdfParser,
     reader: BufReader<R>,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
 ) -> Result<()> {
+    if let Some(value) = base_iri {
+        parser = parser.with_base_iri(value.to_owned())?;
+    }
+
     let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
     let quads = parser_reader.by_ref().collect::<Result<Vec<_>, _>>()?;
 
