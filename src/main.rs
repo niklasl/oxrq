@@ -102,7 +102,10 @@ fn collect_input(
         .replace(" ", "%20");
         parser = parser.with_default_graph(NamedNode::new(&graph_iri)?);
 
-        load_data(&loader, parser, reader, base_iri, prefixes)?;
+        if let Err(e) = load_data(&loader, parser, reader, base_iri, prefixes) {
+            eprintln!("Error in file '{fpath}': {e}");
+            continue;
+        }
     }
 
     // Read data from stdin:
