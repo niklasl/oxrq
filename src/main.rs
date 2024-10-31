@@ -88,7 +88,6 @@ fn collect_input(
 
         let format = RdfFormat::from_extension(ext)
             .with_context(|| format!("No RDF format found for extension {ext}"))?;
-        let mut parser = RdfParser::from_format(format);
 
         let file = File::open(path).with_context(|| format!("Unable to open file: {fpath}"))?;
         let reader = BufReader::new(file);
@@ -100,7 +99,10 @@ fn collect_input(
             format!("file:{fpath}")
         }
         .replace(" ", "%20");
-        parser = parser.with_default_graph(NamedNode::new(&graph_iri)?);
+
+        let parser = RdfParser::from_format(format)
+            .with_default_graph(NamedNode::new(&graph_iri)?)
+            .with_base_iri(base_iri.as_ref().unwrap_or(&graph_iri))?;
 
         if let Err(e) = load_data(&loader, parser, reader, base_iri, prefixes) {
             eprintln!("Error in file '{fpath}': {e}");
@@ -116,10 +118,13 @@ fn collect_input(
         } else {
             RdfFormat::Turtle
         };
-        let parser = RdfParser::from_format(format);
-
         let stdin = std::io::stdin();
         let reader = BufReader::new(stdin.lock());
+
+        let mut parser = RdfParser::from_format(format);
+        if let Some(value) = base_iri {
+            parser = parser.with_base_iri(value.to_owned())?;
+        }
 
         load_data(&loader, parser, reader, base_iri, prefixes)?;
     }
@@ -144,15 +149,11 @@ fn collect_input(
 
 fn load_data<R: Read>(
     loader: &BulkLoader,
-    mut parser: RdfParser,
+    parser: RdfParser,
     reader: BufReader<R>,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
 ) -> Result<()> {
-    if let Some(value) = base_iri {
-        parser = parser.with_base_iri(value.to_owned())?;
-    }
-
     let mut parser_reader = parser.rename_blank_nodes().for_reader(reader);
     let quads = parser_reader.by_ref().collect::<Result<Vec<_>, _>>()?;
 
