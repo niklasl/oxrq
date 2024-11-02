@@ -54,6 +54,8 @@ fn collect_input(
         base_iri.get_or_insert(value.to_owned());
     }
 
+    let mut query_file: Option<&str> = None;
+
     // Use query as file:
     if args.file_query {
         if let Some(actually_fpath) = &args.query {
@@ -62,16 +64,15 @@ fn collect_input(
         }
     }
 
-    let mut use_stdin = !args.no_stdin && args.file.len() == 0;
-
-    let mut query_file: Option<&str> = None;
-
     let loader = store.bulk_loader();
+
+    let mut use_stdin = !args.no_stdin;
 
     // Read data from files:
     for fpath in &args.file {
         if fpath == "-" {
-            use_stdin = true;
+            load_from_stdin(&loader, &args.input_format, base_iri, prefixes)?;
+            use_stdin = false;
             continue;
         }
 
@@ -85,6 +86,8 @@ fn collect_input(
             query_file = Some(fpath);
             continue;
         }
+
+        use_stdin = false;
 
         let format = RdfFormat::from_extension(ext)
             .with_context(|| format!("No RDF format found for extension {ext}"))?;
@@ -112,21 +115,7 @@ fn collect_input(
 
     // Read data from stdin:
     if use_stdin {
-        let format = if let Some(fmt) = &args.input_format {
-            RdfFormat::from_extension(&fmt)
-                .with_context(|| format!("Unknown input format: {fmt}"))?
-        } else {
-            RdfFormat::Turtle
-        };
-        let stdin = std::io::stdin();
-        let reader = BufReader::new(stdin.lock());
-
-        let mut parser = RdfParser::from_format(format);
-        if let Some(value) = base_iri {
-            parser = parser.with_base_iri(value.to_owned())?;
-        }
-
-        load_data(&loader, parser, reader, base_iri, prefixes)?;
+        load_from_stdin(&loader, &args.input_format, base_iri, prefixes)?;
     }
 
     // Get query:
@@ -145,6 +134,30 @@ fn collect_input(
     }
 
     Ok(())
+}
+
+fn load_from_stdin(
+    loader: &BulkLoader,
+    input_format: &Option<String>,
+    base_iri: &mut Option<String>,
+    prefixes: &mut HashMap<String, String>,
+) -> Result<()> {
+    let format = if let Some(fmt) = input_format {
+        RdfFormat::from_extension(&fmt).with_context(|| format!("Unknown input format: {fmt}"))?
+    } else {
+        RdfFormat::Turtle
+    };
+    let stdin = std::io::stdin();
+    let reader = BufReader::new(stdin.lock());
+
+    let mut parser = RdfParser::from_format(format);
+    if let Some(value) = base_iri {
+        parser = parser.with_base_iri(value.to_owned())?;
+    }
+
+    load_data(&loader, parser, reader, base_iri, prefixes)?;
+
+    return Ok(());
 }
 
 fn load_data<R: Read>(
