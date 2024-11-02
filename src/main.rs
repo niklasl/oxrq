@@ -292,11 +292,11 @@ fn main() -> Result<()> {
             .peek()
             .is_some()
         {
-            store.dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer)?;
+            store.dump_graph_to_writer(GraphNameRef::DefaultGraph, serializer, writer)?;
         } else {
             // Picks one named graph at random (i.e. only predictable for one input file):
             for graph_name in store.named_graphs() {
-                store.dump_graph_to_writer(graph_name.unwrap().as_ref(), format, writer)?;
+                store.dump_graph_to_writer(graph_name.unwrap().as_ref(), serializer, writer)?;
                 break;
             }
         }
