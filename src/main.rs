@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser as CliParser;
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
-use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
+use oxigraph::model::{GraphName, GraphNameRef, NamedNode};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
 use oxigraph::sparql::{Query, QueryResults, SparqlSyntaxError, Update};
 use oxigraph::store::{BulkLoader, Store};
@@ -206,14 +206,7 @@ fn query_to_new_store_or_serialize<W: Write>(
         QueryResults::Graph(triples) => {
             let store = Store::new()?;
             for triple in triples {
-                let triple = triple?;
-                let quad = Quad {
-                    subject: triple.subject,
-                    predicate: triple.predicate,
-                    object: triple.object,
-                    graph_name: GraphName::DefaultGraph,
-                };
-                store.insert(quad.as_ref())?;
+                store.insert(triple?.in_graph(GraphName::DefaultGraph).as_ref())?;
             }
             return Ok(Some(store));
         }
