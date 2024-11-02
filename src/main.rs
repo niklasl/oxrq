@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser as CliParser;
 
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode, Quad};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
-use oxigraph::sparql::{Query, QueryResults, Update};
+use oxigraph::sparql::{Query, QueryResults, SparqlSyntaxError, Update};
 use oxigraph::store::{BulkLoader, Store};
 
 #[derive(CliParser)]
@@ -172,6 +172,54 @@ fn load_data<R: Read>(
     Ok(())
 }
 
+fn query_to_new_store_or_serialize<W: Write>(
+    store: &Store,
+    mut query: Query,
+    output_format: &Option<String>,
+    writer: W,
+) -> Result<Option<Store>> {
+    query.dataset_mut().set_default_graph_as_union();
+    let results = store.query(query).context("Query failed")?;
+    match results {
+        // Select:
+        QueryResults::Solutions(solutions) => {
+            let format = get_queryresults_format(output_format)?;
+            let mut serializer = QueryResultsSerializer::from_format(format)
+                .serialize_solutions_to_writer(writer, solutions.variables().to_vec())?;
+            for solution in solutions {
+                serializer.serialize(&solution?)?;
+            }
+            // Done serializing:
+            return Ok(None);
+        }
+
+        // Ask:
+        QueryResults::Boolean(result) => {
+            let format = get_queryresults_format(output_format)?;
+            QueryResultsSerializer::from_format(format)
+                .serialize_boolean_to_writer(writer, result)?;
+            // Done serializing:
+            return Ok(None);
+        }
+
+        // Construct or Describe:
+        QueryResults::Graph(triples) => {
+            let store = Store::new()?;
+            for triple in triples {
+                let triple = triple?;
+                let quad = Quad {
+                    subject: triple.subject,
+                    predicate: triple.predicate,
+                    object: triple.object,
+                    graph_name: GraphName::DefaultGraph,
+                };
+                store.insert(quad.as_ref())?;
+            }
+            return Ok(Some(store));
+        }
+    }
+}
+
 fn get_queryresults_format(output_format: &Option<String>) -> Result<QueryResultsFormat> {
     if let Some(fmt) = output_format {
         QueryResultsFormat::from_extension(&fmt)
@@ -197,55 +245,38 @@ fn main() -> Result<()> {
         &mut prefixes,
     )?;
 
-    // Output writer:
+    // Output:
     let stdout = std::io::stdout();
-    let writer = BufWriter::new(stdout.lock());
+
+    let mut query_parse_err: Option<SparqlSyntaxError> = None;
 
     // Run query:
-    if let Ok(mut query) = Query::parse(&query_str, base_iri.as_deref()) {
-        query.dataset_mut().set_default_graph_as_union();
-        let results = store.query(query).context("Query failed")?;
-        match results {
-            // Select:
-            QueryResults::Solutions(solutions) => {
-                let format = get_queryresults_format(&args.output_format)?;
-                let mut serializer = QueryResultsSerializer::from_format(format)
-                    .serialize_solutions_to_writer(writer, solutions.variables().to_vec())?;
-                for solution in solutions {
-                    serializer.serialize(&solution?)?;
+    match Query::parse(&query_str, base_iri.as_deref()) {
+        Ok(query) => {
+            let writer = BufWriter::new(stdout.lock());
+            match query_to_new_store_or_serialize(&store, query, &args.output_format, writer)? {
+                Some(new_store) => {
+                    store = new_store;
                 }
-                // Done serializing:
-                return Ok(());
-            }
-
-            // Ask:
-            QueryResults::Boolean(result) => {
-                let format = get_queryresults_format(&args.output_format)?;
-                QueryResultsSerializer::from_format(format)
-                    .serialize_boolean_to_writer(writer, result)?;
-                // Done serializing:
-                return Ok(());
-            }
-
-            // Construct or Describe:
-            QueryResults::Graph(triples) => {
-                store = Store::new()?;
-                for triple in triples {
-                    let triple = triple?;
-                    let quad = Quad {
-                        subject: triple.subject,
-                        predicate: triple.predicate,
-                        object: triple.object,
-                        graph_name: GraphName::DefaultGraph,
-                    };
-                    store.insert(quad.as_ref())?;
+                None => {
+                    return Ok(());
                 }
             }
         }
-    } else {
-        // Insert or Delete:
-        let update = Update::parse(&query_str, base_iri.as_deref()).context("Bad query")?;
-        store.update(update)?;
+        Err(err) => {
+            query_parse_err = Some(err);
+        }
+    }
+
+    if let Some(query_parse_err) = query_parse_err {
+        // Maybe an update query:
+        if let Ok(update) = Update::parse(&query_str, base_iri.as_deref()) {
+            // Insert or Delete:
+            store.update(update).context("Update failed")?;
+        } else {
+            // Bail for query error (assumed more likely than update attempt; maybe report both?):
+            bail!(query_parse_err);
+        }
     }
 
     let format = if let Some(fmt) = &args.output_format {
@@ -260,6 +291,7 @@ fn main() -> Result<()> {
         serializer = serializer.with_prefix(pfx, ns)?;
     }
 
+    let writer = BufWriter::new(stdout.lock());
     if !format.supports_datasets() {
         store.dump_graph_to_writer(GraphNameRef::DefaultGraph, format, writer)?;
     } else {
