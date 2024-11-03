@@ -293,6 +293,9 @@ fn main() -> Result<()> {
 
     // Serialize resulting store:
     let mut serializer = RdfSerializer::from_format(format);
+    if let Some(value) = base_iri {
+        serializer = serializer.with_base_iri(value)?;
+    }
     for (pfx, ns) in prefixes {
         serializer = serializer.with_prefix(pfx, ns)?;
     }
