@@ -44,14 +44,18 @@ count
 
 ## Usage Details
 
-The `oxrq` command reads RDF from stdin (Turtle by default, use `--input-format` (or `-i`) to change), and executes the SPARQL query provided as the first argument.
-
-If file arguments are provided, those are read as input data files instead (format detected by suffix). The special `-` name means to also read from stdin.
-
-If `--file-query` (or `-f`) is given, the first argument will be treated as the other input files, and the (last) one with an `.rq` suffix will be read from as the query.
-
-Output will be Turtle for `CONSTRUCT` or `DESCRIBE` (as new graphs), and for `INSERT` or `DELETE` (modifies input data). TSV will be used for `SELECT` and `ASK`. This can be changed with `--output-format` (or `-o`).
+The `oxrq` command reads RDF from stdin (TriG by default, use `--input-format` (or `-i`) to change), and executes the SPARQL query provided as the first argument.
 
 Prefixes used in the source data will be prepended to the SPARQL query, and will be used when serializing (if possible). First found prefix takes precedence, so an empty RDF file can be used to set preferred prefixes.
+
+If file arguments are provided, those are read as input data files instead (format detected by suffix), into a named graph named by the file IRI. If file arguments are passed, stdin will only be read if the special `-` name is used.
+
+If `--file-query` (or `-f`) is given, the first argument will be treated as the other input files, and any file with an `.rq` suffix will be read from as the query (if multiple query files are given, only the last one will be used).
+
+Output format is controlled with `--output-format` (or `-o`). TriG is used by default, giving Turtle compatible output for `CONSTRUCT` or `DESCRIBE` (as one new graph). `INSERT` or `DELETE` updates modify input data (but not source files). TSV is used for `SELECT` and `ASK`.
+
+(The combination `-f -o FORMAT` is useful to reformat data, e.g. `oxrq some.rdf -fo ttl > some.ttl`.)
+
+For formats that cannot serialize datasets, the default graph will be serialized unless empty, in which case an arbitrary named graph will be chosen. (This only works predictably for one input file; use `CONSTRUCT` queries for full control.)
 
 To prevent reading from stdin, use `--no-stdin` (or `-n`). This is useful when creating RDF using self-contained `CONSTRUCT` queries containing `VALUES` clauses.

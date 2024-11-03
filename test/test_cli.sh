@@ -42,8 +42,20 @@ echo "# Output RDF/XML"
 oxrq resources/file1.ttl -fo rdf
 echo
 
+echo "# Find all files matching query"
+oxrq 'select ?g {graph ?g {?item a :Item}}' resources/file1.*
+echo
+
 echo "# Use prefixes from empty file, then read from stdin"
 cat resources/file1.ttl | oxrq -onq | oxrq -f resources/file0.ttl -
+echo
+
+echo "# Use provided base IRI when reading from stdin"
+echo '@prefix : </ns/#>. <item/1> a :Thing .' | oxrq -b "https://example.org/"
+echo
+
+echo "# Use base and prefixes from empty file, read from stdin, use previously defined prefixes in query"
+echo '@prefix ex: </ns#>. <item/1> a ex:Thing .' | oxrq 'select * {?item a :Thing}' resources/file0.ttl -
 echo
 
 echo "# construct from values"
@@ -55,3 +67,4 @@ oxrq -n 'prefix : <https://example.org/vocab/>
             (<item/2> :Item "Item Two")
           }
         }'
+echo
