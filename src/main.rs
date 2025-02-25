@@ -276,8 +276,11 @@ fn main() -> Result<()> {
 
     if let Some(query_parse_err) = query_parse_err {
         // Maybe an update query:
-        if let Ok(update) = Update::parse(&query_str, base_iri.as_deref()) {
+        if let Ok(mut update) = Update::parse(&query_str, base_iri.as_deref()) {
             // Insert or Delete:
+            for ds in update.using_datasets_mut() {
+                ds.set_default_graph_as_union();
+            }
             store.update(update).context("Update failed")?;
         } else {
             // Bail for query error (assumed more likely than update attempt; maybe report both?):

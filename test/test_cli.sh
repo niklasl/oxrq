@@ -13,6 +13,9 @@ test 'delete { ?item :name ?name } WHERE { ?item :name ?name }'
 
 test 'insert { ?item :name "Item One" } WHERE { ?item :name "Item 1" }'
 
+echo "# Insert when matching in named graph from file"
+oxrq 'insert { ?item :name "Item One" } where { ?item :name "Item 1" }' resources/file1.ttl
+
 test 'select ?s ?p ?o { ?s ?p ?o }'
 
 test 'ask { ?item a :Item }'
