@@ -28,7 +28,7 @@ struct CliArgs {
     #[arg(short, long)]
     base_iri: Option<String>,
 
-    /// Provide query via file (with '.rq' suffix)
+    /// Provide query via file (with '.rq' or '.ru' suffix)
     #[arg(short, long)]
     file_query: bool,
 
@@ -82,7 +82,7 @@ fn collect_input(
             .and_then(OsStr::to_str)
             .with_context(|| format!("Needs file extensions to detect input format"))?;
 
-        if ext == "rq" {
+        if ext == "rq" || ext == "ru" {
             query_file = Some(fpath);
             continue;
         }
