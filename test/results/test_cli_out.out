@@ -1,0 +1,92 @@
+# construct { ?item a :Thing } { ?item a :Item }
+@base <http://example.org/> .
+@prefix : <ns#> .
+<item/1> a :Thing .
+
+# delete { ?item :name ?name } WHERE { ?item :name ?name }
+@base <http://example.org/> .
+@prefix : <ns#> .
+<item/1> a :Item .
+
+# insert { ?item :name "Item One" } WHERE { ?item :name "Item 1" }
+@base <http://example.org/> .
+@prefix : <ns#> .
+<item/1> :name "Item One" , "Item 1" ;
+	a :Item .
+
+# Insert when matching in named graph from file
+@base <http://example.org/> .
+@prefix : <ns#> .
+<item/1> :name "Item One" .
+<file:resources/file1.ttl> {
+	<item/1> :name "Item 1" ;
+		a :Item .
+}
+# select ?s ?p ?o { ?s ?p ?o }
+?s	?p	?o
+<http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
+<http://example.org/item/1>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/ns#Item>
+
+# ask { ?item a :Item }
+true
+# ask { ?item a :NoItem }
+false
+# Query from file
+?o	?p	?s
+"Item 1"	<http://example.org/ns#name>	<http://example.org/item/1>
+<http://example.org/ns#Item>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/item/1>
+
+# Query from file
+?o	?p	?s
+"Item 1"	<http://example.org/ns#name>	<http://example.org/item/1>
+<http://example.org/ns#Item>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/item/1>
+
+# Output CSV
+o,p,s
+Item 1,http://example.org/ns#name,http://example.org/item/1
+http://example.org/ns#Item,http://www.w3.org/1999/02/22-rdf-syntax-ns#type,http://example.org/item/1
+
+# Read RDF/XML
+?s	?p	?o
+<http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
+<http://example.org/item/1>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/ns#Item>
+
+# Read RDF/XML from stdin
+?s	?p	?o
+<http://example.org/item/1>	<http://example.org/ns#name>	"Item 1"
+<http://example.org/item/1>	<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>	<http://example.org/ns#Item>
+
+# Output RDF/XML
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xml:base="http://example.org/" xmlns="http://example.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+	<rdf:Description rdf:about="item/1">
+		<name>Item 1</name>
+		<rdf:type rdf:resource="ns#Item"/>
+	</rdf:Description>
+</rdf:RDF>
+# Find all files matching query
+?g
+<file:resources/file1.ttl>
+<file:resources/file1.rdf>
+
+# Use prefixes from empty file, then read from stdin
+@base <http://example.org/> .
+@prefix : <ns#> .
+<item/1> a :Item ;
+	:name "Item 1" .
+
+# Use provided base IRI when reading from stdin
+@base <https://example.org/> .
+@prefix : <ns/#> .
+<item/1> a :Thing .
+
+# Use base and prefixes from empty file, read from stdin, use previously defined prefixes in query
+?item
+<http://example.org/item/1>
+
+# construct from values
+<https://example.org/item/2> a <https://example.org/vocab/Item> ;
+	<https://example.org/vocab/name> "Item Two" .
+<https://example.org/item/1> a <https://example.org/vocab/Item> ;
+	<https://example.org/vocab/name> "Item One" .
+

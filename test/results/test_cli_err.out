@@ -1,0 +1,3 @@
+# Error in file, continue with next
+Error in file 'resources/err1.ttl': Parser error at line 1 between columns 8 and 11: The PREFIX keyword should be followed by a prefix like 'ex:'
+true
