@@ -64,14 +64,14 @@ fn collect_input(
         }
     }
 
-    let loader = store.bulk_loader();
+    let mut loader = store.bulk_loader();
 
     let mut use_stdin = !args.no_stdin;
 
     // Read data from files:
     for fpath in &args.file {
         if fpath == "-" {
-            load_from_stdin(&loader, &args.input_format, base_iri, prefixes)?;
+            load_from_stdin(&mut loader, &args.input_format, base_iri, prefixes)?;
             use_stdin = false;
             continue;
         }
@@ -107,7 +107,7 @@ fn collect_input(
             .with_default_graph(NamedNode::new(&graph_iri)?)
             .with_base_iri(base_iri.as_ref().unwrap_or(&graph_iri))?;
 
-        if let Err(e) = load_data(&loader, parser, reader, base_iri, prefixes) {
+        if let Err(e) = load_data(&mut loader, parser, reader, base_iri, prefixes) {
             eprintln!("Error in file '{fpath}': {e}");
             continue;
         }
@@ -115,8 +115,10 @@ fn collect_input(
 
     // Read data from stdin:
     if use_stdin {
-        load_from_stdin(&loader, &args.input_format, base_iri, prefixes)?;
+        load_from_stdin(&mut loader, &args.input_format, base_iri, prefixes)?;
     }
+
+    loader.commit()?;
 
     // Get query:
     if let Some(fpath) = query_file {
@@ -137,7 +139,7 @@ fn collect_input(
 }
 
 fn load_from_stdin(
-    loader: &BulkLoader,
+    loader: &mut BulkLoader,
     input_format: &Option<String>,
     base_iri: &mut Option<String>,
     prefixes: &mut HashMap<String, String>,
@@ -155,13 +157,13 @@ fn load_from_stdin(
         parser = parser.with_base_iri(value.to_owned())?;
     }
 
-    load_data(&loader, parser, reader, base_iri, prefixes)?;
+    load_data(loader, parser, reader, base_iri, prefixes)?;
 
     return Ok(());
 }
 
 fn load_data<R: Read>(
-    loader: &BulkLoader,
+    loader: &mut BulkLoader,
     parser: RdfParser,
     reader: BufReader<R>,
     base_iri: &mut Option<String>,
@@ -284,6 +286,9 @@ fn main() -> Result<()> {
             store.update(update).context("Update failed")?;
         } else {
             // Bail for query error (assumed more likely than update attempt; maybe report both?):
+            if prefixes.len() > 0 {
+                eprint!("[{} prefixes prepended to query] ", prefixes.len());
+            }
             bail!(query_parse_err);
         }
     }
