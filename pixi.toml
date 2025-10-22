@@ -1,0 +1,16 @@
+[project]
+name = "oxrq"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tasks]
+test = "cargo test"
+test-cli = "test/test_cli.sh"
+install = "cargo install --path ."
+
+[dependencies]
+rust = ">=1.90.0,<1.91"
+openssl = ">=3.5.2,<4"
+pkg-config = ">=0.29.2,<0.30"
+compilers = ">=1.11.0,<2"
+bash = ">=5.2.37,<6"
