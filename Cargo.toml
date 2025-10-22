@@ -9,7 +9,6 @@ keywords = ["RDF", "SPARQL"]
 categories = ["command-line-utilities"]
 version = "0.1.0"
 edition = "2024"
-rust = "1.89"
 
 [dependencies]
 anyhow = "1.0"
