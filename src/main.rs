@@ -10,7 +10,7 @@ use clap::Parser as CliParser;
 use oxigraph::io::{RdfFormat, RdfParser, RdfSerializer};
 use oxigraph::model::{GraphName, GraphNameRef, NamedNode};
 use oxigraph::sparql::results::{QueryResultsFormat, QueryResultsSerializer};
-use oxigraph::sparql::{Query, QueryResults, SparqlSyntaxError, Update};
+use oxigraph::sparql::{PreparedSparqlQuery, QueryResults, SparqlEvaluator, SparqlSyntaxError};
 use oxigraph::store::{BulkLoader, Store};
 
 #[derive(CliParser)]
@@ -189,12 +189,12 @@ fn load_data<R: Read>(
 
 fn query_to_new_store_or_serialize<W: Write>(
     store: &Store,
-    mut query: Query,
+    mut query: PreparedSparqlQuery,
     output_format: &Option<String>,
     writer: W,
 ) -> Result<Option<Store>> {
     query.dataset_mut().set_default_graph_as_union();
-    let results = store.query(query).context("Query failed")?;
+    let results = query.on_store(store).execute()?;
     match results {
         // Select:
         QueryResults::Solutions(solutions) => {
@@ -237,6 +237,14 @@ fn get_queryresults_format(output_format: &Option<String>) -> Result<QueryResult
     }
 }
 
+fn new_sparql_evaluator(base_iri: Option<&String>) -> Result<SparqlEvaluator> {
+    let sparql_eval = SparqlEvaluator::new();
+    if let Some(base_iri_str) = base_iri {
+        return Ok(sparql_eval.with_base_iri(base_iri_str)?);
+    }
+    Ok(sparql_eval)
+}
+
 fn main() -> Result<()> {
     let mut store = Store::new()?;
     let mut query_str = String::new();
@@ -259,7 +267,7 @@ fn main() -> Result<()> {
     let mut query_parse_err: Option<SparqlSyntaxError> = None;
 
     // Run query:
-    match Query::parse(&query_str, base_iri.as_deref()) {
+    match new_sparql_evaluator(base_iri.as_ref())?.parse_query(&query_str) {
         Ok(query) => {
             let writer = BufWriter::new(stdout.lock());
             match query_to_new_store_or_serialize(&store, query, &args.output_format, writer)? {
@@ -278,12 +286,12 @@ fn main() -> Result<()> {
 
     if let Some(query_parse_err) = query_parse_err {
         // Maybe an update query:
-        if let Ok(mut update) = Update::parse(&query_str, base_iri.as_deref()) {
+        if let Ok(mut update) = new_sparql_evaluator(base_iri.as_ref())?.parse_update(&query_str) {
             // Insert or Delete:
             for ds in update.using_datasets_mut() {
                 ds.set_default_graph_as_union();
             }
-            store.update(update).context("Update failed")?;
+            update.on_store(&store).execute().context("Update failed")?;
         } else {
             // Bail for query error (assumed more likely than update attempt; maybe report both?):
             if prefixes.len() > 0 {
