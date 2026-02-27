@@ -1,6 +1,6 @@
 [package]
 name = "oxrq"
-version = "0.1.0"
+version = "0.1.1"
 description = "A command-line tool for running SPARQL queries over input stream or files of RDF data."
 license = "0BSD"
 readme = "README.md"
@@ -21,7 +21,7 @@ anyhow = "1.0"
 clap = { version = ">=4.0,<5.0", features = ["derive"] }
 spargebra = { version = ">=0.3.2" }
 oxhttp = { version = ">=0.2.8,<1.0", features = ["native-tls"] }
-oxigraph = { version = ">=0.5.1,<0.6.0", default-features = false, features = ["http-client", "rdf-12"] }
+oxigraph = { version = ">=0.5.5,<0.6.0", default-features = false, features = ["http-client", "rdf-12"] }
 
 [[bin]]
 name = "oxrq"
